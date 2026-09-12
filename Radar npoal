@@ -1,0 +1,782 @@
+--// RADAR KING NPOAL
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
+
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+
+local RadarEnabled = true
+local RadarLocked = false
+local PlayerEnabled = true
+local TeamEnabled = true
+local NameEnabled = true
+local NPCEnabled = true
+local ESPPlayerEnabled = false
+
+local RadarSize = 200
+local RadarRange = 220
+
+local MinSize, MaxSize, SizeStep = 100, 300, 20
+local MinRange, MaxRange, RangeStep = 50, 670, 50
+
+local Unloaded = false
+local Markers = {}
+local PlayerHighlights = {}
+
+local function Corner(obj, radius)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius)
+	c.Parent = obj
+end
+
+local function Stroke(obj, transparency, thickness)
+	local s = Instance.new("UIStroke")
+	s.Color = Color3.new(1, 1, 1)
+	s.Transparency = transparency or 0.75
+	s.Thickness = thickness or 1
+	s.Parent = obj
+end
+
+local function Tween(obj, properties, time)
+	TweenService:Create(
+		obj,
+		TweenInfo.new(time or 0.15, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+		properties
+	):Play()
+end
+
+local function MakeButton(parent, text, size)
+	local b = Instance.new("TextButton")
+	b.Size = size
+	b.BackgroundColor3 = Color3.fromRGB(28, 28, 32)
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Text = text
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 13
+	b.AutoButtonColor = false
+	b.Parent = parent
+	Corner(b, 10)
+	Stroke(b, 0.8, 1)
+
+	b.MouseEnter:Connect(function()
+		Tween(b, {BackgroundColor3 = Color3.fromRGB(42, 42, 48)})
+	end)
+
+	b.MouseLeave:Connect(function()
+		Tween(b, {BackgroundColor3 = Color3.fromRGB(28, 28, 32)})
+	end)
+
+	return b
+end
+
+local function MakeDraggable(gui, locked)
+	local dragging = false
+	local dragStart
+	local startPos
+
+	gui.InputBegan:Connect(function(input)
+		if locked and locked() then
+			return
+		end
+
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+
+			dragging = true
+			dragStart = input.Position
+			startPos = gui.Position
+
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					dragging = false
+				end
+			end)
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if not dragging then
+			return
+		end
+
+		if input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch then
+
+			local delta = input.Position - dragStart
+
+			gui.Position = UDim2.new(
+				startPos.X.Scale,
+				startPos.X.Offset + delta.X,
+				startPos.Y.Scale,
+				startPos.Y.Offset + delta.Y
+			)
+		end
+	end)
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "RADAR KING NPOAL"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.Parent = PlayerGui
+
+local Radar = Instance.new("Frame")
+Radar.Size = UDim2.fromOffset(RadarSize, RadarSize)
+Radar.Position = UDim2.new(1, -220, 0.5, -100)
+Radar.BackgroundColor3 = Color3.fromRGB(15, 15, 18)
+Radar.ClipsDescendants = true
+Radar.Parent = ScreenGui
+Corner(Radar, 14)
+Stroke(Radar, 0.55, 1)
+
+for _, data in ipairs({
+	{UDim2.new(0, 1, 1, 0), UDim2.new(0.25, 0, 0, 0)},
+	{UDim2.new(0, 1, 1, 0), UDim2.new(0.5, 0, 0, 0)},
+	{UDim2.new(0, 1, 1, 0), UDim2.new(0.75, 0, 0, 0)},
+	{UDim2.new(1, 0, 0, 1), UDim2.new(0, 0, 0.5, 0)}
+}) do
+	local line = Instance.new("Frame")
+	line.Size = data[1]
+	line.Position = data[2]
+	line.BackgroundColor3 = Color3.fromRGB(80, 80, 85)
+	line.BackgroundTransparency = 0.75
+	line.BorderSizePixel = 0
+	line.Parent = Radar
+end
+
+for _, scale in ipairs({0.25, 0.5, 0.75}) do
+	local ring = Instance.new("Frame")
+	ring.Size = UDim2.fromScale(scale, scale)
+	ring.Position = UDim2.fromScale((1 - scale) / 2, (1 - scale) / 2)
+	ring.BackgroundTransparency = 1
+	ring.BorderSizePixel = 1
+	ring.BorderColor3 = Color3.fromRGB(90, 90, 95)
+	ring.Parent = Radar
+end
+
+local Direction = Instance.new("TextLabel")
+Direction.Size = UDim2.new(1, 0, 0, 24)
+Direction.Position = UDim2.fromOffset(0, 4)
+Direction.BackgroundTransparency = 1
+Direction.Text = "N"
+Direction.TextColor3 = Color3.new(1, 1, 1)
+Direction.Font = Enum.Font.GothamBold
+Direction.TextSize = 14
+Direction.Parent = Radar
+
+local MyMarker = Instance.new("TextLabel")
+MyMarker.Name = "MyMarker"
+MyMarker.Size = UDim2.fromOffset(24, 24)
+MyMarker.Position = UDim2.fromScale(0.5, 0.5)
+MyMarker.AnchorPoint = Vector2.new(0.5, 0.5)
+MyMarker.BackgroundTransparency = 1
+MyMarker.Text = "◆"
+MyMarker.TextColor3 = Color3.fromRGB(60, 255, 120)
+MyMarker.TextStrokeColor3 = Color3.new(0, 0, 0)
+MyMarker.TextStrokeTransparency = 0
+MyMarker.Font = Enum.Font.GothamBold
+MyMarker.TextSize = 19
+MyMarker.ZIndex = 20
+MyMarker.Parent = Radar
+
+local CenterGlow = Instance.new("Frame")
+CenterGlow.Size = UDim2.fromOffset(22, 22)
+CenterGlow.Position = UDim2.fromScale(0.5, 0.5)
+CenterGlow.AnchorPoint = Vector2.new(0.5, 0.5)
+CenterGlow.BackgroundColor3 = Color3.fromRGB(60, 255, 120)
+CenterGlow.BackgroundTransparency = 0.9
+CenterGlow.ZIndex = 1
+CenterGlow.Parent = Radar
+Corner(CenterGlow, 99)
+
+local RadarButton = MakeButton(ScreenGui, "RADAR • ON", UDim2.fromOffset(125, 42))
+RadarButton.Position = UDim2.new(0, 20, 0.5, -50)
+
+local SettingsButton = MakeButton(ScreenGui, "SETTINGS", UDim2.fromOffset(125, 42))
+SettingsButton.Position = UDim2.new(0, 20, 0.5, 2)
+
+MakeDraggable(Radar, function()
+	return RadarLocked
+end)
+
+MakeDraggable(RadarButton)
+MakeDraggable(SettingsButton)
+
+local Settings = Instance.new("Frame")
+Settings.Size = UDim2.fromOffset(390, 360)
+Settings.Position = UDim2.new(0.5, -195, 0.5, -180)
+Settings.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+Settings.Visible = false
+Settings.Parent = ScreenGui
+Corner(Settings, 14)
+Stroke(Settings, 0.55, 1)
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -60, 0, 30)
+Title.Position = UDim2.fromOffset(18, 14)
+Title.BackgroundTransparency = 1
+Title.Text = "RADAR CONTROL"
+Title.TextColor3 = Color3.new(1, 1, 1)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 18
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = Settings
+
+local Subtitle = Instance.new("TextLabel")
+Subtitle.Size = UDim2.new(1, -60, 0, 20)
+Subtitle.Position = UDim2.fromOffset(18, 42)
+Subtitle.BackgroundTransparency = 1
+Subtitle.Text = "Customize your radar"
+Subtitle.TextColor3 = Color3.fromRGB(150, 150, 155)
+Subtitle.Font = Enum.Font.Gotham
+Subtitle.TextSize = 11
+Subtitle.TextXAlignment = Enum.TextXAlignment.Left
+Subtitle.Parent = Settings
+
+local Close = MakeButton(Settings, "×", UDim2.fromOffset(38, 38))
+Close.Position = UDim2.new(1, 7, 0, -7)
+Close.TextSize = 20
+
+local Tabs = Instance.new("Frame")
+Tabs.Size = UDim2.fromOffset(135, 270)
+Tabs.Position = UDim2.fromOffset(12, 78)
+Tabs.BackgroundTransparency = 1
+Tabs.Parent = Settings
+
+local RadarTab = MakeButton(Tabs, "RADAR SETTINGS", UDim2.new(1, 0, 0, 48))
+RadarTab.Position = UDim2.fromOffset(0, 0)
+
+local MapTab = MakeButton(Tabs, "MAP SETTINGS", UDim2.new(1, 0, 0, 48))
+MapTab.Position = UDim2.fromOffset(0, 58)
+
+local Panel = Instance.new("ScrollingFrame")
+Panel.Size = UDim2.new(1, -162, 1, -82)
+Panel.Position = UDim2.fromOffset(152, 72)
+Panel.BackgroundColor3 = Color3.fromRGB(23, 23, 27)
+Panel.BorderSizePixel = 0
+Panel.ScrollBarThickness = 5
+Panel.CanvasSize = UDim2.new(0, 0, 0, 390)
+Panel.ScrollingDirection = Enum.ScrollingDirection.Y
+Panel.Parent = Settings
+Corner(Panel, 10)
+
+local RadarPanel = Instance.new("Frame")
+RadarPanel.Size = UDim2.new(1, -20, 0, 390)
+RadarPanel.Position = UDim2.fromOffset(10, 10)
+RadarPanel.BackgroundTransparency = 1
+RadarPanel.Parent = Panel
+
+local MapPanel = Instance.new("Frame")
+MapPanel.Size = UDim2.new(1, -20, 0, 390)
+MapPanel.Position = UDim2.fromOffset(10, 10)
+MapPanel.BackgroundTransparency = 1
+MapPanel.Visible = false
+MapPanel.Parent = Panel
+
+local function AddToggle(parent, y, label, getState, callback)
+	local b = MakeButton(parent, "", UDim2.new(1, 0, 0, 42))
+	b.Position = UDim2.fromOffset(0, y)
+
+	local function update()
+		b.Text = label .. " • " .. (getState() and "ON" or "OFF")
+	end
+
+	update()
+
+	b.Activated:Connect(function()
+		callback()
+		update()
+	end)
+
+	return b
+end
+
+AddToggle(RadarPanel, 0, "PLAYER", function()
+	return PlayerEnabled
+end, function()
+	PlayerEnabled = not PlayerEnabled
+end)
+
+AddToggle(RadarPanel, 48, "TEAM", function()
+	return TeamEnabled
+end, function()
+	TeamEnabled = not TeamEnabled
+end)
+
+AddToggle(RadarPanel, 96, "NAME", function()
+	return NameEnabled
+end, function()
+	NameEnabled = not NameEnabled
+end)
+
+AddToggle(RadarPanel, 144, "NPC", function()
+	return NPCEnabled
+end, function()
+	NPCEnabled = not NPCEnabled
+end)
+
+AddToggle(RadarPanel, 192, "ESP CHAMS", function()
+	return ESPPlayerEnabled
+end, function()
+	ESPPlayerEnabled = not ESPPlayerEnabled
+end)
+
+local SizeMinus = MakeButton(MapPanel, "−", UDim2.fromOffset(42, 42))
+SizeMinus.Position = UDim2.fromOffset(0, 0)
+
+local SizeLabel = Instance.new("TextLabel")
+SizeLabel.Size = UDim2.new(1, -96, 0, 42)
+SizeLabel.Position = UDim2.fromOffset(48, 0)
+SizeLabel.BackgroundColor3 = Color3.fromRGB(28, 28, 32)
+SizeLabel.Text = "SIZE  200"
+SizeLabel.TextColor3 = Color3.new(1, 1, 1)
+SizeLabel.Font = Enum.Font.GothamBold
+SizeLabel.TextSize = 13
+SizeLabel.Parent = MapPanel
+Corner(SizeLabel, 10)
+Stroke(SizeLabel, 0.8, 1)
+
+local SizePlus = MakeButton(MapPanel, "+", UDim2.fromOffset(42, 42))
+SizePlus.Position = UDim2.new(1, -42, 0, 0)
+
+local RangeMinus = MakeButton(MapPanel, "−", UDim2.fromOffset(42, 42))
+RangeMinus.Position = UDim2.fromOffset(0, 58)
+
+local RangeLabel = Instance.new("TextLabel")
+RangeLabel.Size = UDim2.new(1, -96, 0, 42)
+RangeLabel.Position = UDim2.fromOffset(48, 58)
+RangeLabel.BackgroundColor3 = Color3.fromRGB(28, 28, 32)
+RangeLabel.Text = "RANGE  220"
+RangeLabel.TextColor3 = Color3.new(1, 1, 1)
+RangeLabel.Font = Enum.Font.GothamBold
+RangeLabel.TextSize = 13
+RangeLabel.Parent = MapPanel
+Corner(RangeLabel, 10)
+Stroke(RangeLabel, 0.8, 1)
+
+local RangePlus = MakeButton(MapPanel, "+", UDim2.fromOffset(42, 42))
+RangePlus.Position = UDim2.new(1, -42, 0, 58)
+
+AddToggle(MapPanel, 116, "LOCK", function()
+	return RadarLocked
+end, function()
+	RadarLocked = not RadarLocked
+end)
+
+local UnloadButton = MakeButton(MapPanel, "UNLOAD", UDim2.new(1, 0, 0, 42))
+UnloadButton.Position = UDim2.fromOffset(0, 164)
+
+SizeMinus.Activated:Connect(function()
+	RadarSize = math.clamp(RadarSize - SizeStep, MinSize, MaxSize)
+	SizeLabel.Text = "SIZE  " .. RadarSize
+	Radar.Size = UDim2.fromOffset(RadarSize, RadarSize)
+end)
+
+SizePlus.Activated:Connect(function()
+	RadarSize = math.clamp(RadarSize + SizeStep, MinSize, MaxSize)
+	SizeLabel.Text = "SIZE  " .. RadarSize
+	Radar.Size = UDim2.fromOffset(RadarSize, RadarSize)
+end)
+
+RangeMinus.Activated:Connect(function()
+	RadarRange = math.clamp(RadarRange - RangeStep, MinRange, MaxRange)
+	RangeLabel.Text = "RANGE  " .. RadarRange
+end)
+
+RangePlus.Activated:Connect(function()
+	RadarRange = math.clamp(RadarRange + RangeStep, MinRange, MaxRange)
+	RangeLabel.Text = "RANGE  " .. RadarRange
+end)
+
+UnloadButton.Activated:Connect(function()
+	Unloaded = true
+
+	for _, h in pairs(PlayerHighlights) do
+		if h then
+			h:Destroy()
+		end
+	end
+
+	for _, marker in pairs(Markers) do
+		if marker then
+			marker:Destroy()
+		end
+	end
+
+	ScreenGui:Destroy()
+end)
+
+MakeDraggable(Settings)
+
+RadarButton.Activated:Connect(function()
+	RadarEnabled = not RadarEnabled
+	Radar.Visible = RadarEnabled
+	RadarButton.Text = RadarEnabled and "RADAR • ON" or "RADAR • OFF"
+end)
+
+SettingsButton.Activated:Connect(function()
+	Settings.Visible = not Settings.Visible
+end)
+
+Close.Activated:Connect(function()
+	Settings.Visible = false
+end)
+
+RadarTab.Activated:Connect(function()
+	RadarPanel.Visible = true
+	MapPanel.Visible = false
+	Panel.CanvasPosition = Vector2.zero
+end)
+
+MapTab.Activated:Connect(function()
+	RadarPanel.Visible = false
+	MapPanel.Visible = true
+	Panel.CanvasPosition = Vector2.zero
+end)
+
+local function RemoveMarker(key)
+	if Markers[key] then
+		Markers[key]:Destroy()
+		Markers[key] = nil
+	end
+end
+
+local function CreateMarker(key, color, text)
+	local holder = Instance.new("Frame")
+	holder.Size = UDim2.fromOffset(8, 8)
+	holder.AnchorPoint = Vector2.new(0.5, 0.5)
+	holder.BackgroundTransparency = 1
+	holder.Parent = Radar
+
+	local dot = Instance.new("Frame")
+	dot.Size = UDim2.fromOffset(8, 8)
+	dot.AnchorPoint = Vector2.new(0.5, 0.5)
+	dot.Position = UDim2.fromScale(0.5, 0.5)
+	dot.BackgroundColor3 = color
+	dot.Parent = holder
+	Corner(dot, 99)
+
+	local label = Instance.new("TextLabel")
+	label.Name = "Name"
+	label.Size = UDim2.fromOffset(120, 20)
+	label.Position = UDim2.fromOffset(8, -10)
+	label.BackgroundTransparency = 1
+	label.Text = text or ""
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.TextStrokeTransparency = 0.4
+	label.Font = Enum.Font.Gotham
+	label.TextSize = 10
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Visible = text ~= nil
+	label.Parent = holder
+
+	Markers[key] = holder
+	return holder
+end
+
+local function GetPlayerColor(other)
+	if TeamEnabled and other.Team == Player.Team then
+		return Color3.fromRGB(60, 255, 120)
+	end
+
+	return Color3.fromRGB(255, 70, 70)
+end
+
+local function UpdatePlayerESP(other)
+	if other == Player then
+		return
+	end
+
+	local character = other.Character
+
+	if ESPPlayerEnabled and character then
+		local highlight = PlayerHighlights[other]
+
+		if not highlight or not highlight.Parent then
+			highlight = Instance.new("Highlight")
+			highlight.Name = "RadarChams"
+			highlight.Adornee = character
+			highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+			highlight.FillTransparency = 0.35
+			highlight.OutlineTransparency = 0
+			highlight.Parent = character
+
+			PlayerHighlights[other] = highlight
+		end
+
+		local color = GetPlayerColor(other)
+
+		highlight.FillColor = color
+		highlight.OutlineColor = Color3.new(1, 1, 1)
+		highlight.FillTransparency = 0.35
+		highlight.OutlineTransparency = 0
+	else
+		if PlayerHighlights[other] then
+			PlayerHighlights[other]:Destroy()
+			PlayerHighlights[other] = nil
+		end
+	end
+end
+
+local function IsNPC(model)
+	if not model:IsA("Model") then
+		return false
+	end
+
+	if Players:GetPlayerFromCharacter(model) then
+		return false
+	end
+
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+
+	if not humanoid then
+		return false
+	end
+
+	local root = model:FindFirstChild("HumanoidRootPart")
+		or model.PrimaryPart
+
+	return root ~= nil
+end
+
+local function GetNPCs()
+	local list = {}
+
+	for _, obj in ipairs(Workspace:GetDescendants()) do
+		if IsNPC(obj) then
+			table.insert(list, obj)
+		end
+	end
+
+	return list
+end
+
+local function SmoothMarker(marker, target, deltaTime, instant)
+	if instant then
+		marker.Position = target
+		return
+	end
+
+	local speed = 14
+	local alpha = 1 - math.exp(-speed * deltaTime)
+
+	marker.Position = marker.Position:Lerp(target, alpha)
+end
+
+local function UpdateRadar(deltaTime)
+	if Unloaded or not RadarEnabled then
+		return
+	end
+
+	local camera = Workspace.CurrentCamera
+	local character = Player.Character
+	local myRoot = character and character:FindFirstChild("HumanoidRootPart")
+
+	if not camera or not myRoot then
+		return
+	end
+
+	deltaTime = math.clamp(deltaTime or 0.016, 0.001, 0.1)
+
+	local look = camera.CFrame.LookVector
+	local forward = Vector3.new(look.X, 0, look.Z)
+
+	if forward.Magnitude < 0.01 then
+		forward = Vector3.new(0, 0, -1)
+	end
+
+	forward = forward.Unit
+
+	local right = Vector3.new(-forward.Z, 0, forward.X)
+
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other ~= Player then
+			UpdatePlayerESP(other)
+
+			local char = other.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+
+			if PlayerEnabled and root then
+				local offset = root.Position - myRoot.Position
+				local distance = offset.Magnitude
+
+				if distance <= RadarRange then
+					local x = math.clamp(
+						offset:Dot(right) / RadarRange,
+						-0.48,
+						0.48
+					)
+
+					local y = math.clamp(
+						offset:Dot(forward) / RadarRange,
+						-0.48,
+						0.48
+					)
+
+					local target = UDim2.fromScale(
+						0.5 + x,
+						0.5 - y
+					)
+
+					local marker = Markers[other]
+					local newMarker = false
+
+					if not marker then
+						marker = CreateMarker(
+							other,
+							GetPlayerColor(other),
+							other.DisplayName
+						)
+						newMarker = true
+					end
+
+					marker.Visible = true
+					SmoothMarker(marker, target, deltaTime, newMarker)
+
+					local dot = marker:FindFirstChildWhichIsA("Frame")
+
+					if dot then
+						dot.BackgroundColor3 = GetPlayerColor(other)
+					end
+
+					local nameLabel = marker:FindFirstChild("Name")
+
+					if nameLabel then
+						nameLabel.Text = other.DisplayName
+						nameLabel.Visible = NameEnabled
+					end
+				else
+					RemoveMarker(other)
+				end
+			else
+				RemoveMarker(other)
+			end
+		end
+	end
+
+	local activeNPCs = {}
+
+	if NPCEnabled then
+		for _, npc in ipairs(GetNPCs()) do
+			activeNPCs[npc] = true
+
+			local root = npc:FindFirstChild("HumanoidRootPart")
+				or npc.PrimaryPart
+
+			if root then
+				local offset = root.Position - myRoot.Position
+				local distance = offset.Magnitude
+
+				if distance <= RadarRange then
+					local x = math.clamp(
+						offset:Dot(right) / RadarRange,
+						-0.48,
+						0.48
+					)
+
+					local y = math.clamp(
+						offset:Dot(forward) / RadarRange,
+						-0.48,
+						0.48
+					)
+
+					local target = UDim2.fromScale(
+						0.5 + x,
+						0.5 - y
+					)
+
+					local marker = Markers[npc]
+					local newMarker = false
+
+					if not marker then
+						marker = CreateMarker(
+							npc,
+							Color3.new(1, 1, 1),
+							npc.Name
+						)
+						newMarker = true
+					end
+
+					marker.Visible = true
+					SmoothMarker(marker, target, deltaTime, newMarker)
+
+					local dot = marker:FindFirstChildWhichIsA("Frame")
+
+					if dot then
+						dot.BackgroundColor3 = Color3.new(1, 1, 1)
+					end
+
+					local nameLabel = marker:FindFirstChild("Name")
+
+					if nameLabel then
+						nameLabel.Text = npc.Name
+						nameLabel.Visible = NameEnabled
+					end
+				else
+					RemoveMarker(npc)
+				end
+			end
+		end
+	end
+
+	for key, marker in pairs(Markers) do
+		if typeof(key) == "Instance"
+			and key:IsA("Model")
+			and not activeNPCs[key]
+			and not Players:GetPlayerFromCharacter(key) then
+
+			RemoveMarker(key)
+		end
+	end
+
+	local north = math.deg(math.atan2(-forward.X, -forward.Z))
+	Direction.Rotation = -north
+end
+
+Players.PlayerAdded:Connect(function(other)
+	other.CharacterAdded:Connect(function()
+		task.wait(0.2)
+		UpdatePlayerESP(other)
+	end)
+end)
+
+Players.PlayerRemoving:Connect(function(other)
+	if PlayerHighlights[other] then
+		PlayerHighlights[other]:Destroy()
+		PlayerHighlights[other] = nil
+	end
+
+	RemoveMarker(other)
+end)
+
+RunService.RenderStepped:Connect(UpdateRadar)
+
+task.spawn(function()
+	while not Unloaded do
+		if RadarEnabled then
+			Tween(CenterGlow, {
+				Size = UDim2.fromOffset(24, 24),
+				BackgroundTransparency = 0.92
+			}, 0.6)
+
+			task.wait(0.6)
+
+			if Unloaded then
+				break
+			end
+
+			Tween(CenterGlow, {
+				Size = UDim2.fromOffset(14, 14),
+				BackgroundTransparency = 0.78
+			}, 0.6)
+
+			task.wait(0.6)
+		else
+			task.wait(0.5)
+		end
+	end
+end)
