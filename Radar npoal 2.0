@@ -1,0 +1,770 @@
+--// RADAR KING NPOAL
+
+local Players=game:GetService("Players")
+local RunService=game:GetService("RunService")
+local UIS=game:GetService("UserInputService")
+local Workspace=game:GetService("Workspace")
+local TweenService=game:GetService("TweenService")
+
+local Player=Players.LocalPlayer
+local PlayerGui=Player:WaitForChild("PlayerGui")
+
+local RadarEnabled=true
+local RadarLocked=false
+local PlayerEnabled=true
+local TeamEnabled=true
+local NameEnabled=true
+local NPCEnabled=true
+local ESPPlayerEnabled=false
+local RadarSize=200
+local RadarRange=220
+local MinSize,MaxSize=100,300
+local MinRange,MaxRange=50,670
+local Unloaded=false
+local Markers={}
+local PlayerHighlights={}
+local TeleportHighlight=nil
+local SelectedPlayer=nil
+local NPCs={}
+local NPCTimer=0
+
+local function Corner(o,r)
+	local c=Instance.new("UICorner")
+	c.CornerRadius=UDim.new(0,r)
+	c.Parent=o
+end
+
+local function Stroke(o,t,th)
+	local s=Instance.new("UIStroke")
+	s.Color=Color3.new(1,1,1)
+	s.Transparency=t or .75
+	s.Thickness=th or 1
+	s.Parent=o
+end
+
+local function Tween(o,p,time)
+	TweenService:Create(o,TweenInfo.new(time or .15,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),p):Play()
+end
+
+local function MakeButton(parent,text,size)
+	local b=Instance.new("TextButton")
+	b.Size=size
+	b.BackgroundColor3=Color3.fromRGB(28,28,32)
+	b.TextColor3=Color3.new(1,1,1)
+	b.Text=text
+	b.Font=Enum.Font.GothamBold
+	b.TextSize=13
+	b.AutoButtonColor=false
+	b.Parent=parent
+	Corner(b,10)
+	Stroke(b,.8,1)
+	b.MouseEnter:Connect(function()
+		Tween(b,{BackgroundColor3=Color3.fromRGB(42,42,48)})
+	end)
+	b.MouseLeave:Connect(function()
+		Tween(b,{BackgroundColor3=Color3.fromRGB(28,28,32)})
+	end)
+	return b
+end
+
+local function MakeDraggable(gui,locked,handle)
+	local dragging=false
+	local dragStart,startPos
+	handle=handle or gui
+
+	handle.InputBegan:Connect(function(input)
+		if locked and locked() then return end
+		if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
+			dragging=true
+			dragStart=input.Position
+			startPos=gui.Position
+		end
+	end)
+
+	UIS.InputChanged:Connect(function(input)
+		if not dragging or locked and locked() then return end
+		if input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch then
+			local d=input.Position-dragStart
+			gui.Position=UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
+		end
+	end)
+
+	UIS.InputEnded:Connect(function(input)
+		if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
+			dragging=false
+		end
+	end)
+end
+
+local ScreenGui=Instance.new("ScreenGui")
+ScreenGui.Name="RADAR KING NPOAL"
+ScreenGui.ResetOnSpawn=false
+ScreenGui.IgnoreGuiInset=true
+ScreenGui.Parent=PlayerGui
+
+local Radar=Instance.new("Frame")
+Radar.Size=UDim2.fromOffset(RadarSize,RadarSize)
+Radar.Position=UDim2.new(1,-220,.5,-100)
+Radar.BackgroundColor3=Color3.fromRGB(15,15,18)
+Radar.ClipsDescendants=true
+Radar.Parent=ScreenGui
+Corner(Radar,14)
+Stroke(Radar,.55,1)
+
+for _,data in ipairs({
+	{UDim2.new(0,1,1,0),UDim2.new(.25,0,0,0)},
+	{UDim2.new(0,1,1,0),UDim2.new(.5,0,0,0)},
+	{UDim2.new(0,1,1,0),UDim2.new(.75,0,0,0)},
+	{UDim2.new(1,0,0,1),UDim2.new(0,0,.5,0)}
+}) do
+	local line=Instance.new("Frame")
+	line.Size=data[1]
+	line.Position=data[2]
+	line.BackgroundColor3=Color3.fromRGB(80,80,85)
+	line.BackgroundTransparency=.75
+	line.BorderSizePixel=0
+	line.Parent=Radar
+end
+
+for _,scale in ipairs({.25,.5,.75}) do
+	local ring=Instance.new("Frame")
+	ring.Size=UDim2.fromScale(scale,scale)
+	ring.Position=UDim2.fromScale((1-scale)/2,(1-scale)/2)
+	ring.BackgroundTransparency=1
+	ring.BorderSizePixel=1
+	ring.BorderColor3=Color3.fromRGB(90,90,95)
+	ring.Parent=Radar
+end
+
+local Direction=Instance.new("TextLabel")
+Direction.Size=UDim2.new(1,0,0,24)
+Direction.Position=UDim2.fromOffset(0,4)
+Direction.BackgroundTransparency=1
+Direction.Text="N"
+Direction.TextColor3=Color3.new(1,1,1)
+Direction.Font=Enum.Font.GothamBold
+Direction.TextSize=14
+Direction.Parent=Radar
+
+local CenterGlow=Instance.new("Frame")
+CenterGlow.Size=UDim2.fromOffset(22,22)
+CenterGlow.Position=UDim2.fromScale(.5,.5)
+CenterGlow.AnchorPoint=Vector2.new(.5,.5)
+CenterGlow.BackgroundColor3=Color3.fromRGB(60,255,120)
+CenterGlow.BackgroundTransparency=.9
+CenterGlow.ZIndex=1
+CenterGlow.Parent=Radar
+Corner(CenterGlow,99)
+
+local MyMarker=Instance.new("TextLabel")
+MyMarker.Size=UDim2.fromOffset(24,24)
+MyMarker.Position=UDim2.fromScale(.5,.5)
+MyMarker.AnchorPoint=Vector2.new(.5,.5)
+MyMarker.BackgroundTransparency=1
+MyMarker.Text="◆"
+MyMarker.TextColor3=Color3.fromRGB(60,255,120)
+MyMarker.TextStrokeColor3=Color3.new(0,0,0)
+MyMarker.TextStrokeTransparency=0
+MyMarker.Font=Enum.Font.GothamBold
+MyMarker.TextSize=19
+MyMarker.ZIndex=20
+MyMarker.Parent=Radar
+
+local RadarButton=MakeButton(ScreenGui,"RADAR • ON",UDim2.fromOffset(125,42))
+RadarButton.Position=UDim2.new(0,20,.5,-50)
+
+local SettingsButton=MakeButton(ScreenGui,"SETTINGS",UDim2.fromOffset(125,42))
+SettingsButton.Position=UDim2.new(0,20,.5,2)
+
+MakeDraggable(Radar,function() return RadarLocked end)
+MakeDraggable(RadarButton)
+MakeDraggable(SettingsButton)
+
+local Settings=Instance.new("Frame")
+Settings.Size=UDim2.fromOffset(390,360)
+Settings.Position=UDim2.new(.5,-195,.5,-180)
+Settings.BackgroundColor3=Color3.fromRGB(18,18,22)
+Settings.Visible=false
+Settings.Parent=ScreenGui
+Corner(Settings,14)
+Stroke(Settings,.55,1)
+
+local Title=Instance.new("TextLabel")
+Title.Size=UDim2.new(1,-60,0,30)
+Title.Position=UDim2.fromOffset(18,14)
+Title.BackgroundTransparency=1
+Title.Text="RADAR CONTROL"
+Title.TextColor3=Color3.new(1,1,1)
+Title.Font=Enum.Font.GothamBold
+Title.TextSize=18
+Title.TextXAlignment=Enum.TextXAlignment.Left
+Title.Parent=Settings
+
+local Subtitle=Instance.new("TextLabel")
+Subtitle.Size=UDim2.new(1,-60,0,20)
+Subtitle.Position=UDim2.fromOffset(18,42)
+Subtitle.BackgroundTransparency=1
+Subtitle.Text="Customize your radar"
+Subtitle.TextColor3=Color3.fromRGB(150,150,155)
+Subtitle.Font=Enum.Font.Gotham
+Subtitle.TextSize=11
+Subtitle.TextXAlignment=Enum.TextXAlignment.Left
+Subtitle.Parent=Settings
+
+local Close=MakeButton(Settings,"×",UDim2.fromOffset(38,38))
+Close.Position=UDim2.new(1,7,0,-7)
+Close.TextSize=20
+
+local Tabs=Instance.new("Frame")
+Tabs.Size=UDim2.fromOffset(135,270)
+Tabs.Position=UDim2.fromOffset(12,78)
+Tabs.BackgroundTransparency=1
+Tabs.Parent=Settings
+
+local RadarTab=MakeButton(Tabs,"RADAR SETTINGS",UDim2.new(1,0,0,48))
+local MapTab=MakeButton(Tabs,"MAP SETTINGS",UDim2.new(1,0,0,48))
+MapTab.Position=UDim2.fromOffset(0,58)
+
+local Panel=Instance.new("ScrollingFrame")
+Panel.Size=UDim2.new(1,-162,1,-82)
+Panel.Position=UDim2.fromOffset(152,72)
+Panel.BackgroundColor3=Color3.fromRGB(23,23,27)
+Panel.BorderSizePixel=0
+Panel.ScrollBarThickness=5
+Panel.CanvasSize=UDim2.new(0,0,0,390)
+Panel.ScrollingDirection=Enum.ScrollingDirection.Y
+Panel.Parent=Settings
+Corner(Panel,10)
+
+local RadarPanel=Instance.new("Frame")
+RadarPanel.Size=UDim2.new(1,-20,0,390)
+RadarPanel.Position=UDim2.fromOffset(10,10)
+RadarPanel.BackgroundTransparency=1
+RadarPanel.Parent=Panel
+
+local MapPanel=Instance.new("Frame")
+MapPanel.Size=UDim2.new(1,-20,0,390)
+MapPanel.Position=UDim2.fromOffset(10,10)
+MapPanel.BackgroundTransparency=1
+MapPanel.Visible=false
+MapPanel.Parent=Panel
+
+local function AddToggle(parent,y,label,getState,callback)
+	local b=MakeButton(parent,"",UDim2.new(1,0,0,42))
+	b.Position=UDim2.fromOffset(0,y)
+	local function update()
+		b.Text=label.." • "..(getState() and "ON" or "OFF")
+	end
+	update()
+	b.Activated:Connect(function()
+		callback()
+		update()
+	end)
+	return b
+end
+
+AddToggle(RadarPanel,0,"PLAYER",function() return PlayerEnabled end,function()
+	PlayerEnabled=not PlayerEnabled
+end)
+
+AddToggle(RadarPanel,48,"TEAM",function() return TeamEnabled end,function()
+	TeamEnabled=not TeamEnabled
+end)
+
+AddToggle(RadarPanel,96,"NAME",function() return NameEnabled end,function()
+	NameEnabled=not NameEnabled
+end)
+
+AddToggle(RadarPanel,144,"NPC",function() return NPCEnabled end,function()
+	NPCEnabled=not NPCEnabled
+end)
+
+AddToggle(RadarPanel,192,"ESP CHAMS",function() return ESPPlayerEnabled end,function()
+	ESPPlayerEnabled=not ESPPlayerEnabled
+end)
+
+local function MakeSlider(parent,y,title,min,max,getValue,setValue)
+	local box=Instance.new("Frame")
+	box.Size=UDim2.new(1,0,0,72)
+	box.Position=UDim2.fromOffset(0,y)
+	box.BackgroundTransparency=1
+	box.Parent=parent
+
+	local label=Instance.new("TextLabel")
+	label.Size=UDim2.new(1,-70,0,22)
+	label.BackgroundTransparency=1
+	label.Text=title
+	label.TextColor3=Color3.new(1,1,1)
+	label.Font=Enum.Font.GothamBold
+	label.TextSize=12
+	label.TextXAlignment=Enum.TextXAlignment.Left
+	label.Parent=box
+
+	local input=Instance.new("TextBox")
+	input.Size=UDim2.fromOffset(62,28)
+	input.Position=UDim2.new(1,-62,0,-3)
+	input.BackgroundColor3=Color3.fromRGB(28,28,32)
+	input.TextColor3=Color3.new(1,1,1)
+	input.Font=Enum.Font.GothamBold
+	input.TextSize=12
+	input.ClearTextOnFocus=false
+	input.Text=tostring(getValue())
+	input.Parent=box
+	Corner(input,7)
+	Stroke(input,.8,1)
+
+	local track=Instance.new("Frame")
+	track.Size=UDim2.new(1,-8,0,8)
+	track.Position=UDim2.fromOffset(4,43)
+	track.BackgroundColor3=Color3.fromRGB(55,55,60)
+	track.BorderSizePixel=0
+	track.Active=true
+	track.Parent=box
+	Corner(track,8)
+
+	local fill=Instance.new("Frame")
+	fill.Size=UDim2.fromScale(0,1)
+	fill.BackgroundColor3=Color3.fromRGB(60,255,120)
+	fill.BorderSizePixel=0
+	fill.Parent=track
+	Corner(fill,8)
+
+	local knob=Instance.new("TextButton")
+	knob.Size=UDim2.fromOffset(18,18)
+	knob.AnchorPoint=Vector2.new(.5,.5)
+	knob.Position=UDim2.fromScale(0,.5)
+	knob.BackgroundColor3=Color3.new(1,1,1)
+	knob.Text=""
+	knob.AutoButtonColor=false
+	knob.ZIndex=3
+	knob.Parent=track
+	Corner(knob,99)
+
+	local dragging=false
+
+	local function setVisual(v)
+		v=math.clamp(v,min,max)
+		local a=(v-min)/(max-min)
+		fill.Size=UDim2.fromScale(a,1)
+		knob.Position=UDim2.fromScale(a,.5)
+		input.Text=tostring(math.floor(v+.5))
+	end
+
+	local function setFromX(x)
+		local a=math.clamp((x-track.AbsolutePosition.X)/track.AbsoluteSize.X,0,1)
+		local v=math.floor(min+(max-min)*a+.5)
+		setValue(v)
+		setVisual(v)
+	end
+
+	local function begin(i)
+		dragging=true
+		setFromX(i.Position.X)
+	end
+
+	track.InputBegan:Connect(function(i)
+		if i.UserInputType==Enum.UserInputType.Touch or i.UserInputType==Enum.UserInputType.MouseButton1 then
+			begin(i)
+		end
+	end)
+
+	knob.InputBegan:Connect(function(i)
+		if i.UserInputType==Enum.UserInputType.Touch or i.UserInputType==Enum.UserInputType.MouseButton1 then
+			begin(i)
+		end
+	end)
+
+	UIS.InputChanged:Connect(function(i)
+		if dragging and (i.UserInputType==Enum.UserInputType.Touch or i.UserInputType==Enum.UserInputType.MouseMovement) then
+			setFromX(i.Position.X)
+		end
+	end)
+
+	UIS.InputEnded:Connect(function(i)
+		if i.UserInputType==Enum.UserInputType.Touch or i.UserInputType==Enum.UserInputType.MouseButton1 then
+			dragging=false
+		end
+	end)
+
+	input.FocusLost:Connect(function()
+		local v=tonumber(input.Text)
+		if not v then
+			setVisual(getValue())
+			return
+		end
+		v=math.clamp(math.floor(v+.5),min,max)
+		setValue(v)
+		setVisual(v)
+	end)
+
+	setVisual(getValue())
+end
+
+MakeSlider(MapPanel,0,"SIZE",MinSize,MaxSize,function()
+	return RadarSize
+end,function(v)
+	RadarSize=v
+	Radar.Size=UDim2.fromOffset(v,v)
+end)
+
+MakeSlider(MapPanel,78,"RANGE",MinRange,MaxRange,function()
+	return RadarRange
+end,function(v)
+	RadarRange=v
+end)
+
+AddToggle(MapPanel,156,"LOCK",function()
+	return RadarLocked
+end,function()
+	RadarLocked=not RadarLocked
+end)
+
+local UnloadButton=MakeButton(MapPanel,"UNLOAD",UDim2.new(1,0,0,42))
+UnloadButton.Position=UDim2.fromOffset(0,204)
+UnloadButton.BackgroundColor3=Color3.fromRGB(170,45,45)
+
+local TeleportPrompt=MakeButton(ScreenGui,'TP "Player"?',UDim2.fromOffset(210,38))
+TeleportPrompt.Visible=false
+TeleportPrompt.ZIndex=100
+
+local NoButton=MakeButton(ScreenGui,"NO",UDim2.fromOffset(90,38))
+NoButton.Visible=false
+NoButton.ZIndex=100
+
+local YesButton=MakeButton(ScreenGui,"YES",UDim2.fromOffset(90,38))
+YesButton.Visible=false
+YesButton.ZIndex=100
+
+local function UpdateTeleportPosition()
+	if not TeleportPrompt.Visible then return end
+	local p=Radar.AbsolutePosition
+	local s=Radar.AbsoluteSize
+	local gap=8
+	local y=p.Y+s.Y+gap
+	TeleportPrompt.Position=UDim2.fromOffset(p.X+(s.X-210)/2,y)
+	NoButton.Position=UDim2.fromOffset(p.X+s.X/2-94,y+46)
+	YesButton.Position=UDim2.fromOffset(p.X+s.X/2+4,y+46)
+end
+
+local function RemoveTeleportHighlight()
+	if TeleportHighlight then
+		TeleportHighlight:Destroy()
+		TeleportHighlight=nil
+	end
+end
+
+local function ClearSelection()
+	SelectedPlayer=nil
+	RemoveTeleportHighlight()
+	TeleportPrompt.Visible=false
+	NoButton.Visible=false
+	YesButton.Visible=false
+end
+
+local function ShowTeleportHighlight(p)
+	RemoveTeleportHighlight()
+	local char=p and p.Character
+	if not char then return end
+
+	local h=Instance.new("Highlight")
+	h.Name="TeleportTargetChams"
+	h.Adornee=char
+	h.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
+	h.FillColor=Color3.fromRGB(40,120,255)
+	h.OutlineColor=Color3.fromRGB(100,180,255)
+	h.FillTransparency=.3
+	h.OutlineTransparency=0
+	h.Parent=char
+	TeleportHighlight=h
+end
+
+NoButton.Activated:Connect(ClearSelection)
+
+YesButton.Activated:Connect(function()
+	local p=SelectedPlayer
+	if not p or not p.Parent then
+		ClearSelection()
+		return
+	end
+
+	local char=p.Character
+	local root=char and char:FindFirstChild("HumanoidRootPart")
+	local myChar=Player.Character
+
+	if root and myChar then
+		myChar:PivotTo(root.CFrame*CFrame.new(0,3,0))
+	end
+
+	ClearSelection()
+end)
+
+Close.Activated:Connect(function()
+	Settings.Visible=false
+end)
+
+RadarButton.Activated:Connect(function()
+	RadarEnabled=not RadarEnabled
+	Radar.Visible=RadarEnabled
+	RadarButton.Text=RadarEnabled and "RADAR • ON" or "RADAR • OFF"
+
+	if not RadarEnabled then
+		ClearSelection()
+	end
+end)
+
+SettingsButton.Activated:Connect(function()
+	Settings.Visible=not Settings.Visible
+end)
+
+RadarTab.Activated:Connect(function()
+	RadarPanel.Visible=true
+	MapPanel.Visible=false
+	Panel.CanvasPosition=Vector2.zero
+end)
+
+MapTab.Activated:Connect(function()
+	RadarPanel.Visible=false
+	MapPanel.Visible=true
+	Panel.CanvasPosition=Vector2.zero
+end)
+
+local function RemoveMarker(key)
+	local marker=Markers[key]
+	if marker then
+		marker:Destroy()
+		Markers[key]=nil
+	end
+
+	if SelectedPlayer==key then
+		ClearSelection()
+	end
+end
+
+local function CreateMarker(key,color,text)
+	local holder=Instance.new("TextButton")
+	holder.Size=UDim2.fromOffset(24,24)
+	holder.AnchorPoint=Vector2.new(.5,.5)
+	holder.BackgroundTransparency=1
+	holder.Text=""
+	holder.AutoButtonColor=false
+	holder.ZIndex=30
+	holder.Parent=Radar
+
+	local dot=Instance.new("Frame")
+	dot.Size=UDim2.fromOffset(8,8)
+	dot.AnchorPoint=Vector2.new(.5,.5)
+	dot.Position=UDim2.fromScale(.5,.5)
+	dot.BackgroundColor3=color
+	dot.BorderSizePixel=0
+	dot.ZIndex=31
+	dot.Parent=holder
+	Corner(dot,99)
+
+	local label=Instance.new("TextLabel")
+	label.Name="Name"
+	label.Size=UDim2.fromOffset(120,20)
+	label.Position=UDim2.fromOffset(8,-10)
+	label.BackgroundTransparency=1
+	label.Text=text or ""
+	label.TextColor3=Color3.new(1,1,1)
+	label.TextStrokeTransparency=.4
+	label.Font=Enum.Font.Gotham
+	label.TextSize=10
+	label.TextXAlignment=Enum.TextXAlignment.Left
+	label.Visible=text~=nil
+	label.ZIndex=32
+	label.Parent=holder
+
+	if key:IsA("Player") then
+		holder.Activated:Connect(function()
+			if Unloaded or not key.Parent then return end
+
+			SelectedPlayer=key
+			TeleportPrompt.Text='TP "'..key.DisplayName..'"?'
+			TeleportPrompt.Visible=true
+			NoButton.Visible=true
+			YesButton.Visible=true
+			ShowTeleportHighlight(key)
+			UpdateTeleportPosition()
+		end)
+	end
+
+	Markers[key]=holder
+	return holder
+end
+
+local function GetPlayerColor(other)
+	if TeamEnabled and Player.Team and other.Team and Player.Team==other.Team then
+		return Color3.fromRGB(60,255,120)
+	end
+	return Color3.fromRGB(255,70,70)
+end
+
+local function UpdatePlayerESP(other)
+	if other==Player then return end
+
+	local character=other.Character
+
+	if ESPPlayerEnabled and character then
+		local h=PlayerHighlights[other]
+
+		if not h or not h.Parent then
+			h=Instance.new("Highlight")
+			h.Name="RadarChams"
+			h.Adornee=character
+			h.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
+			h.FillTransparency=.35
+			h.OutlineTransparency=0
+			h.Parent=character
+			PlayerHighlights[other]=h
+		end
+
+		h.FillColor=GetPlayerColor(other)
+		h.OutlineColor=Color3.new(1,1,1)
+	else
+		if PlayerHighlights[other] then
+			PlayerHighlights[other]:Destroy()
+			PlayerHighlights[other]=nil
+		end
+	end
+end
+
+local function IsNPC(model)
+	if not model:IsA("Model") then return false end
+	if Players:GetPlayerFromCharacter(model) then return false end
+	if not model:FindFirstChildOfClass("Humanoid") then return false end
+	return model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
+end
+
+local function RefreshNPCs()
+	table.clear(NPCs)
+	for _,obj in ipairs(Workspace:GetDescendants()) do
+		if IsNPC(obj) then
+			NPCs[obj]=true
+		end
+	end
+end
+
+local function SmoothMarker(marker,target,dt,instant)
+	if instant then
+		marker.Position=target
+	else
+		marker.Position=marker.Position:Lerp(target,1-math.exp(-14*dt))
+	end
+end
+
+local function UpdateRadar(dt)
+	if Unloaded or not RadarEnabled then return end
+
+	local camera=Workspace.CurrentCamera
+	local character=Player.Character
+	local myRoot=character and character:FindFirstChild("HumanoidRootPart")
+
+	if not camera or not myRoot then return end
+
+	dt=math.clamp(dt or .016,.001,.1)
+
+	NPCTimer+=dt
+	if NPCTimer>.5 then
+		NPCTimer=0
+		RefreshNPCs()
+	end
+
+	local look=camera.CFrame.LookVector
+	local forward=Vector3.new(look.X,0,look.Z)
+
+	if forward.Magnitude<.01 then
+		forward=Vector3.new(0,0,-1)
+	end
+
+	forward=forward.Unit
+	local right=Vector3.new(-forward.Z,0,forward.X)
+
+	local north=Vector3.new(0,0,-1)
+	local angle=math.deg(math.atan2(forward.X,forward.Z)-math.atan2(north.X,north.Z))
+	Direction.Rotation=-angle
+
+	for _,other in ipairs(Players:GetPlayers()) do
+		if other~=Player then
+			UpdatePlayerESP(other)
+
+			local char=other.Character
+			local root=char and char:FindFirstChild("HumanoidRootPart")
+
+			if PlayerEnabled and root then
+				local offset=root.Position-myRoot.Position
+				local distance=offset.Magnitude
+
+				if distance<=RadarRange then
+					local x=math.clamp(offset:Dot(right)/RadarRange,-.48,.48)
+					local y=math.clamp(offset:Dot(forward)/RadarRange,-.48,.48)
+					local target=UDim2.fromScale(.5+x,.5-y)
+
+					local marker=Markers[other]
+					local newMarker=false
+
+					if not marker then
+						marker=CreateMarker(other,GetPlayerColor(other),other.DisplayName)
+						newMarker=true
+					end
+
+					marker.Visible=true
+					SmoothMarker(marker,target,dt,newMarker)
+
+					local dot=marker:FindFirstChildWhichIsA("Frame")
+					if dot then
+						dot.BackgroundColor3=GetPlayerColor(other)
+					end
+
+					local name=marker:FindFirstChild("Name")
+					if name then
+						name.Text=other.DisplayName
+						name.Visible=NameEnabled
+					end
+				else
+					RemoveMarker(other)
+				end
+			else
+				RemoveMarker(other)
+			end
+		end
+	end
+
+	local activeNPCs={}
+
+	if NPCEnabled then
+		for npc in pairs(NPCs) do
+			if npc.Parent then
+				local root=npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart
+
+				if root then
+					local offset=root.Position-myRoot.Position
+					local distance=offset.Magnitude
+
+					if distance<=RadarRange then
+						activeNPCs[npc]=true
+
+						local x=math.clamp(offset:Dot(right)/RadarRange,-.48,.48)
+						local y=math.clamp(offset:Dot(forward)/RadarRange,-.48,.48)
+						local target=UDim2.fromScale(.5+x,.5-y)
+
+						local marker=Markers[npc]
+						local newMarker=false
+
+						if not marker then
+							marker=CreateMarker(npc,Color3.new(1,1,1),npc.Name)
+							newMarker=true
+						end
+
+						marker.Visible=true
+						SmoothMarker(marker,target,dt,newMarker)
+
+						local dot=marker:FindFirstChildWhichIsA("Frame")
+						if dot then
+							dot.BackgroundColor3=Color3.new(1,1,1)
+						end
+
+						local name=marker:FindFirstChild("Name")
+						if name then
+							name.Text=npc.Name
+							name.Visible=NameEnabl
